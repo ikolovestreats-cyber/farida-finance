@@ -65,7 +65,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .nw-val{font-family:'Inter',sans-serif;font-size:20px;font-weight:500;letter-spacing:-1px;line-height:1.1}
 .nw-lbl{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-top:4px}
 .nw-val.g{color:var(--green)}.nw-val.r{color:var(--red)}.nw-val.b{color:var(--blue)}
-@media(max-width:600px){.nw-grid{grid-template-columns:1fr 1fr;gap:14px}.nw-stat{border-right:none;padding:0}}
+@media(max-width:600px){.nw-grid{grid-template-columns:1fr 1fr 1fr!important;gap:14px}.nw-stat{border-right:none;padding:0}}
 /* COMMITTED SUMMARY */
 .committed{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);padding:0;margin-bottom:18px;box-shadow:var(--sh);overflow:hidden}
 .committed-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;cursor:pointer;user-select:none}
@@ -334,9 +334,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="page active" id="tab-overview">
   <div class="month-banner" id="ov-month-banner"></div>
   <div class="nw">
-    <div class="nw-grid" style="grid-template-columns:repeat(6,1fr)">
+    <div class="nw-grid" style="grid-template-columns:repeat(7,1fr)">
       <div class="nw-stat"><div class="nw-val g" id="ov-assets">$0</div><div class="nw-lbl">Assets</div></div>
       <div class="nw-stat"><div class="nw-val" style="color:var(--teal)" id="ov-savings-stat">$0</div><div class="nw-lbl">Savings</div></div>
+      <div class="nw-stat"><div class="nw-val r" id="ov-cc-debt">$0</div><div class="nw-lbl">CC Debt</div></div>
       <div class="nw-stat"><div class="nw-val r" id="ov-debt">$0</div><div class="nw-lbl">Total Debt</div></div>
       <div class="nw-stat"><div class="nw-val b" id="ov-nw">$0</div><div class="nw-lbl">Net Worth</div></div>
       <div class="nw-stat"><div class="nw-val g" id="ov-avail">$0</div><div class="nw-lbl">Avail. Credit</div></div>
@@ -722,12 +723,15 @@ function renderOverview(){
   const totSav=S.accounts.filter(a=>a.type==='savings').reduce((s,a)=>s+Number(a.balance),0);
   el('ov-savings-stat').textContent=fmt(totSav);
   el('ov-debt').textContent=fmt(debt);
+  el('ov-cc-debt').textContent=fmt(totAccountDebt());
   const nwEl=el('ov-nw');nwEl.textContent=fmt(nw);nwEl.className='nw-val '+(nw>=0?'g':'r');
   el('ov-avail').textContent=fmt(totAvailCredit());
   const lEl=el('ov-left');lEl.textContent=fmt(debitLeft);lEl.className='nw-val '+(debitLeft>=0?'g':'r');
 
   // committed summary
   const ccMin=totCCMinPayments(),debtPay=totDebtPayments(),bills=totBillsAll(),subs=totSubsMonthly();
+  const monthIncomeTotal=S.income.filter(i=>!i.month||i.month===viewMonth()).reduce((s,i)=>s+Number(i.amount),0);
+  const tentativeLeft=monthIncomeTotal-committed;
   const committedEl=el('ov-committed');
   const committedOpen=committedEl.dataset.open!=='false';
   committedEl.innerHTML=`
@@ -749,6 +753,16 @@ function renderOverview(){
       <div class="committed-total-row">
         <span class="committed-total-lbl">Total committed</span>
         <span class="committed-total-val">${fmt(committed)}</span>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:8px">Tentative — not an actual transaction</div>
+        <div class="committed-row"><span class="committed-lbl">Income this month</span><span class="committed-val" style="color:var(--green)">${fmt(monthIncomeTotal)}</span></div>
+        <div class="committed-row"><span class="committed-lbl">Minus committed</span><span class="committed-val">−${fmt(committed)}</span></div>
+        <hr class="committed-divider">
+        <div class="committed-total-row">
+          <span class="committed-total-lbl">If paid in full</span>
+          <span class="committed-total-val" style="color:${tentativeLeft>=0?'var(--green)':'var(--red)'}">${fmt(tentativeLeft)}</span>
+        </div>
       </div>
     </div>`;
 
