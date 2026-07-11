@@ -1279,6 +1279,7 @@ function renderDebts(){
       </div>`:''}
       ${d.note?`<div style="font-size:11px;color:var(--t3);margin-top:8px">${d.note}</div>`:''}
       <div class="debt-acts">
+        ${(d.status==='deferment'||d.status==='forbearance')?`<button class="btn-sm pay" onclick="openModal('debtpayment','${d.id}')">💸 Log Payment</button>`:''}
         <button class="btn-sm" onclick="openModal('debt','${d.id}')">✎ Edit</button>
         <button class="bic r" onclick="rm('debt','${d.id}')">✕</button>
       </div>
@@ -1500,6 +1501,26 @@ function openModal(mode,id=null){
       </div>
       <div class="fg"><label class="fl">Notes</label><input class="fi" id="f_dnote" placeholder="e.g. Interest-only until July 2026" value="${d&&d.note?d.note:''}"></div>`;
   }
+  else if(mode==='debtpayment'){
+    const d=S.debts.find(x=>x.id===id);
+    const liveInterest=liveAccruedInterest(d);
+    t.textContent=`Pay toward — ${d.name}`;
+    b.innerHTML=`
+      <div class="fg">
+        <div class="fl">Accrued interest</div>
+        <div style="font-family:'Inter',sans-serif;font-size:22px;font-weight:600;color:var(--amber)">${fmtD(liveInterest)}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">Payment applies to interest first, then principal</div>
+      </div>
+      <div class="fg"><label class="fl">Payment amount</label>
+        <input class="fi" id="f_dp_amt" type="number" placeholder="0" step="0.01">
+        <div class="hint">Any amount, any time — no fixed schedule required during deferment.</div>
+      </div>
+      <div class="fg"><label class="fl">Pay from</label>
+        <select class="fi" id="f_dp_from">
+          <option value="">— select account —</option>
+          ${S.accounts.filter(x=>x.type==='checking'||x.type==='savings').map(x=>`<option value="${x.id}" ${d.payFromId===x.id?'selected':''}>${x.name}</option>`).join('')}
+        </select></div>`;
+  }
   else if(mode==='bucket'){
     const bk=id?S.buckets.find(x=>x.id===id):null;
     t.textContent=bk?'Edit Bucket':'Add Savings Bucket';
@@ -1655,6 +1676,28 @@ function saveModal(){
       if(src)src.balance=Number(src.balance)-paidAmount;
     }
     toast('Payment logged');
+  }
+  else if(modalMode==='debtpayment'){
+    const d=S.debts.find(x=>x.id===editId);
+    const amount=parseFloat(v('f_dp_amt'));
+    const fromId=v('f_dp_from');
+    if(!d||isNaN(amount)||amount<=0)return;
+    // apply to interest first, then principal
+    const liveInterest=liveAccruedInterest(d);
+    if(amount<=liveInterest){
+      // entire payment goes to interest — update accrued interest baseline
+      d.accruedInterest=Math.max(0,liveInterest-amount);
+      d.accrualDate=new Date().toISOString().split('T')[0];
+    } else {
+      // pays off all interest, rest goes to principal
+      const remainingForPrincipal=amount-liveInterest;
+      d.accruedInterest=0;
+      d.accrualDate=new Date().toISOString().split('T')[0];
+      d.balance=Math.max(0,Number(d.balance)-remainingForPrincipal);
+    }
+    // deduct from checking account
+    if(fromId){const acc=ga(fromId);if(acc)acc.balance=Number(acc.balance)-amount;}
+    toast(`Payment of ${fmt(amount)} logged`);
   }
   else if(modalMode==='debt'){
     const name=v('f_dn'),balance=parseFloat(v('f_db'));
