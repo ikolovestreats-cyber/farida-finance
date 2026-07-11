@@ -437,14 +437,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <!-- BILLS -->
 <div class="page" id="tab-bills">
+  <!-- RECURRING BILLS -->
   <div class="sec">
     <div class="sec-hd" style="cursor:default">
-      <div class="sec-hd-left"><span class="sec-title">Monthly Bills</span></div>
-      <button class="btn-add" onclick="openModal('bill')">+ Add Bill</button>
+      <div class="sec-hd-left"><span class="sec-title" style="color:var(--red)">Recurring Bills</span></div>
+      <button class="btn-add" onclick="openModal('bill','','recurring')">+ Add</button>
     </div>
-    <div class="list" id="bills-list"></div>
-    <div class="sumrow"><span class="sumrow-lbl">Total bills</span><span class="sumrow-val r" id="bills-total">$0</span></div>
+    <div class="list" id="bills-recurring-list"></div>
   </div>
+
+  <!-- ONE-TIME / VARIABLE -->
+  <div class="sec">
+    <div class="sec-hd" style="cursor:default">
+      <div class="sec-hd-left"><span class="sec-title">One-time / Variable</span></div>
+      <button class="btn-add" onclick="openModal('bill','','onetime')">+ Add</button>
+    </div>
+    <div class="list" id="bills-onetime-list"></div>
+  </div>
+
+  <!-- CC BALANCE PAYMENTS -->
+  <div class="sec">
+    <div class="sec-hd" style="cursor:default">
+      <div class="sec-hd-left"><span class="sec-title" style="color:var(--blue)">CC Balance Payments</span></div>
+      <button class="btn-add" onclick="openModal('ccpayment')">+ Log Payment</button>
+    </div>
+    <div class="list" id="bills-ccpayments-list"></div>
+    <div class="hint" style="margin-top:8px">Payments you made toward your credit card balance this month. Not the minimum — any extra payment you chose to make.</div>
+  </div>
+
+  <div class="sumrow" style="margin-top:8px"><span class="sumrow-lbl">Total bills</span><span class="sumrow-val r" id="bills-total">$0</span></div>
 </div>
 
 <!-- SUBSCRIPTIONS -->
@@ -532,6 +553,7 @@ let S={
   weeks:[],
   buckets:[],
   debts:[],
+  ccpayments:[],  // {id,accountId,fromAccountId,amount,month,paidMonths:[]}
   notes:''
 };
 let modalMode='',editId=null,weekEntryCount=1;
@@ -1049,7 +1071,6 @@ function renderAccounts(){
       <div class="ac-sublbl">${isCredit?'balance owed':'current balance'}</div>
       ${stmtHtml}
       <div class="ac-acts">
-        ${isCredit?`<button class="btn-sm pay" onclick="openModal('payment','${a.id}')">💳 Log Payment</button>`:''}
         <button class="btn-sm" onclick="openModal('account','${a.id}')">✎ Edit</button>
         <button class="bic r" onclick="rm('account','${a.id}')">✕</button>
       </div>
@@ -1123,9 +1144,34 @@ function subHtml(x,showActs=true){
 }
 
 function renderBills(){
-  const allBills=[...S.bills,...getAutoBills()];
-  const l=el('bills-list');
-  l.innerHTML=allBills.length?allBills.map(b=>billHtml(b)).join(''):empty('📋','No bills yet');
+  // Recurring bills (monthly, weekly, biweekly + auto bills)
+  const recurringBills=[...S.bills.filter(b=>b.recurrence&&b.recurrence!=='none'),...getAutoBills()];
+  const onetimeBills=S.bills.filter(b=>!b.recurrence||b.recurrence==='none');
+
+  const rList=el('bills-recurring-list');
+  rList.innerHTML=recurringBills.length?recurringBills.map(b=>billHtml(b)).join(''):empty('📋','No recurring bills yet');
+
+  const oList=el('bills-onetime-list');
+  oList.innerHTML=onetimeBills.length?onetimeBills.map(b=>billHtml(b)).join(''):empty('📋','No one-time bills yet');
+
+  // CC payments this month
+  const ccList=el('bills-ccpayments-list');
+  const thisMoCCPayments=S.ccpayments.filter(p=>!p.month||p.month===viewMonth());
+  ccList.innerHTML=thisMoCCPayments.length?thisMoCCPayments.map(p=>{
+    const cc=ga(p.accountId);const from=ga(p.fromAccountId);
+    return `<div class="item">
+      <div class="item-l">
+        <div class="item-name">💳 ${cc?cc.name:'CC'} payment</div>
+        <div class="item-meta">from ${from?from.name:'—'} · ${p.month||''}</div>
+      </div>
+      <div class="item-amt r">${fmt(p.amount)}</div>
+      <div class="item-acts">
+        <button class="bic" onclick="openModal('ccpayment','${p.id}')">✎</button>
+        <button class="bic r" onclick="rm('ccpayment','${p.id}')">✕</button>
+      </div>
+    </div>`;
+  }).join(''):empty('💳','No CC payments logged this month');
+
   el('bills-total').textContent=fmt(totBillsAll()+totDebtPayments()+totCCMinPayments());
 }
 
@@ -1381,6 +1427,26 @@ function openModal(mode,id=null){
         <button class="wrow-add" onclick="addWeekRow()">+ Add account</button>
       </div>`;
   }
+  else if(mode==='ccpayment'){
+    const p=id?S.ccpayments.find(x=>x.id===id):null;
+    const ccAccounts=S.accounts.filter(a=>a.type==='credit');
+    const debitAccounts=S.accounts.filter(a=>a.type==='checking'||a.type==='savings');
+    t.textContent=p?'Edit CC Payment':'Log CC Balance Payment';
+    b.innerHTML=`
+      <div class="fg"><label class="fl">Credit card</label>
+        <select class="fi" id="f_ccp_cc">
+          <option value="">— select card —</option>
+          ${ccAccounts.map(a=>`<option value="${a.id}" ${p&&p.accountId===a.id?'selected':''}>${a.name} (owes ${fmt(a.balance)})</option>`).join('')}
+        </select></div>
+      <div class="fg"><label class="fl">Amount paid</label>
+        <input class="fi" id="f_ccp_amt" type="number" placeholder="0" value="${p?p.amount:''}">
+        <div class="hint">This will reduce the CC balance and deduct from your checking account.</div></div>
+      <div class="fg"><label class="fl">Paid from</label>
+        <select class="fi" id="f_ccp_from">
+          <option value="">— select account —</option>
+          ${debitAccounts.map(a=>`<option value="${a.id}" ${p&&p.fromAccountId===a.id?'selected':''}>${a.name}</option>`).join('')}
+        </select></div>`;
+  }
   else if(mode==='payment'){
     const a=ga(id);
     t.textContent=`Log Payment — ${a.name}`;
@@ -1562,6 +1628,8 @@ function saveModal(){
           });
           const miscAmt=Math.max(0,statementAmt-paidBillsAmt-paidSubsAmt);
           entries.push({accountId:accId,amount:miscAmt,statementTotal:statementAmt,billsSubtracted:paidBillsAmt,subsSubtracted:paidSubsAmt});
+          // if CC account, increase balance by misc amount (you charged more)
+          if(acc&&acc.type==='credit'&&!editId)acc.balance=Number(acc.balance)+miscAmt;
         }
       }i++;
     }
@@ -1573,6 +1641,27 @@ function saveModal(){
       if(!w.month)w.month=weekMonth;
     } else S.weeks.push({id:uid(),label,entries,month:weekMonth,startDate,endDate});
     toast(editId?'Week updated':'Week logged');
+  }
+  else if(modalMode==='ccpayment'){
+    const accountId=v('f_ccp_cc'),fromAccountId=v('f_ccp_from');
+    const amount=parseFloat(v('f_ccp_amt'));
+    if(!accountId||isNaN(amount)||amount<=0)return;
+    const month=viewMonth();
+    if(editId){
+      const p=S.ccpayments.find(x=>x.id===editId);
+      // reverse old transaction
+      const oldCC=ga(p.accountId);if(oldCC)oldCC.balance=Number(oldCC.balance)+Number(p.amount);
+      const oldFrom=ga(p.fromAccountId);if(oldFrom)oldFrom.balance=Number(oldFrom.balance)+Number(p.amount);
+      p.accountId=accountId;p.fromAccountId=fromAccountId;p.amount=amount;p.month=month;
+      // apply new
+      const cc=ga(accountId);if(cc)cc.balance=Math.max(0,Number(cc.balance)-amount);
+      const from=ga(fromAccountId);if(from)from.balance=Number(from.balance)-amount;
+    } else {
+      S.ccpayments.push({id:uid(),accountId,fromAccountId,amount,month,paidMonths:[]});
+      const cc=ga(accountId);if(cc)cc.balance=Math.max(0,Number(cc.balance)-amount);
+      const from=ga(fromAccountId);if(from)from.balance=Number(from.balance)-amount;
+    }
+    toast(editId?'Payment updated':'Payment logged');
   }
   else if(modalMode==='payment'){
     const a=ga(editId);
@@ -1636,6 +1725,14 @@ function rm(type,id){
   }
   else if(type==='bucket')S.buckets=S.buckets.filter(x=>x.id!==id);
   else if(type==='debt')S.debts=S.debts.filter(x=>x.id!==id);
+  else if(type==='ccpayment'){
+    const p=S.ccpayments.find(x=>x.id===id);
+    if(p){
+      const cc=ga(p.accountId);if(cc)cc.balance=Number(cc.balance)+Number(p.amount);
+      const from=ga(p.fromAccountId);if(from)from.balance=Number(from.balance)+Number(p.amount);
+    }
+    S.ccpayments=S.ccpayments.filter(x=>x.id!==id);
+  }
   save();render();toast('Removed');
 }
 
