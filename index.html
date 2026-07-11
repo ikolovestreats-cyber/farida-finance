@@ -306,6 +306,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="signin-error" id="signinError"></div>
   </div>
 </div>
+<div id="mainApp" style="display:none">
 <div class="nav">
   <div class="nav-brand">💰 Farida's Finances</div>
   <div class="nav-actions">
@@ -449,7 +450,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ONE-TIME / VARIABLE -->
   <div class="sec">
     <div class="sec-hd" style="cursor:default">
-      <div class="sec-hd-left"><span class="sec-title">One-time / Variable</span></div>
+      <div class="sec-hd-left"><span class="sec-title" style="color:var(--blue)">One-time / Variable</span></div>
       <button class="btn-add" onclick="openModal('bill','','onetime')">+ Add</button>
     </div>
     <div class="list" id="bills-onetime-list"></div>
@@ -516,6 +517,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="sumrow" style="margin-top:6px"><span class="sumrow-lbl">Total monthly payments</span><span class="sumrow-val r" id="debts-monthly">$0</span></div>
   </div>
 </div>
+</div><!-- /mainApp -->
 
 <div class="overlay" id="overlay" onclick="outsideClose(event)">
   <div class="modal">
@@ -1777,6 +1779,8 @@ function importData(){
         if(!data.buckets)data.buckets=[];
         if(!data.subs)data.subs=[];
         if(!data.weeks)data.weeks=[];
+        if(!data.ccpayments)data.ccpayments=[];
+        if(!data.notes)data.notes='';
         data.bills.forEach(b=>{if(!b.paidMonths)b.paidMonths=[];if(!b.recurrence)b.recurrence='monthly';});
         data.subs.forEach(s=>{if(!s.paidMonths)s.paidMonths=[];});
         // migrate loan-type accounts to debts
@@ -1891,6 +1895,7 @@ async function afterSignIn(){
     await findOrCreateDriveFile();
     await loadFromDrive();
     el('signinGate').classList.add('hidden');
+    document.getElementById('mainApp').style.display = '';
     setSyncStatus('synced','Synced');
     render();
   }catch(err){
@@ -1976,7 +1981,8 @@ function signOutDrive(){
   sessionStorage.removeItem('drive_token');
   driveAccessToken=null;
   driveFileId=null;
-  S={accounts:[],income:[],bills:[],subs:[],weeks:[],buckets:[],debts:[]};
+  S={accounts:[],income:[],bills:[],subs:[],weeks:[],buckets:[],debts:[],ccpayments:[],notes:''};
+  document.getElementById('mainApp').style.display='none';
   el('signinGate').classList.remove('hidden');
 }
 
