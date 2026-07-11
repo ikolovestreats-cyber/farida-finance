@@ -400,6 +400,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
       <div class="sec-body" id="ov-savings-body"><div id="ov-savings"></div></div>
     </div>
+
+  <div class="sec" id="sec-ov-notes">
+    <div class="sec-hd" onclick="toggleSec('sec-ov-notes')">
+      <div class="sec-hd-left"><span class="sec-chevron open">▶</span><span class="sec-title">Notes</span></div>
+    </div>
+    <div class="sec-body" id="ov-notes-body">
+      <textarea id="ov-notes-text" placeholder="e.g. Updated July 10 — watching Netflix spend..." style="width:100%;min-height:120px;padding:12px;border:1.5px solid var(--border);border-radius:var(--rs);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);resize:vertical;outline:none;line-height:1.6;" oninput="saveNotes()"></textarea>
+    </div>
+  </div>
   </div>
 </div>
 
@@ -518,11 +527,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 let S={
   accounts:[],
   income:[],
-  bills:[],     // {id,name,amount,due,accountId,recurrence,paidMonths:[],autoFrom?}
-  subs:[],      // {id,name,amount,cycle,chargeMonth,accountId,paidMonths:[]}
+  bills:[],
+  subs:[],
   weeks:[],
   buckets:[],
-  debts:[]      // {id,name,balance,interestRate,monthlyPayment,status,note,accruedInterest,accrualDate}
+  debts:[],
+  notes:''
 };
 let modalMode='',editId=null,weekEntryCount=1;
 let selectedMonth=null; // null = current month; format: "June 2026"
@@ -559,16 +569,34 @@ function toggleBillPaid(id){
   const b=S.bills.find(x=>x.id===id);
   if(!b.paidMonths)b.paidMonths=[];
   const key=nowMonthKey();
-  if(b.paidMonths.includes(key))b.paidMonths=b.paidMonths.filter(k=>k!==key);
-  else b.paidMonths.push(key);
+  const wasPaid=b.paidMonths.includes(key);
+  if(wasPaid){
+    b.paidMonths=b.paidMonths.filter(k=>k!==key);
+    // if assigned to CC, reverse the charge
+    const acc=ga(b.accountId);
+    if(acc&&acc.type==='credit')acc.balance=Math.max(0,Number(acc.balance)-Number(b.amount));
+  } else {
+    b.paidMonths.push(key);
+    // if assigned to CC, increase what is owed
+    const acc=ga(b.accountId);
+    if(acc&&acc.type==='credit')acc.balance=Number(acc.balance)+Number(b.amount);
+  }
   save();render();
 }
 function toggleSubPaid(id){
   const s=S.subs.find(x=>x.id===id);
   if(!s.paidMonths)s.paidMonths=[];
   const key=nowMonthKey();
-  if(s.paidMonths.includes(key))s.paidMonths=s.paidMonths.filter(k=>k!==key);
-  else s.paidMonths.push(key);
+  const wasPaid=s.paidMonths.includes(key);
+  if(wasPaid){
+    s.paidMonths=s.paidMonths.filter(k=>k!==key);
+    const acc=ga(s.accountId);
+    if(acc&&acc.type==='credit')acc.balance=Math.max(0,Number(acc.balance)-subMonthly(s));
+  } else {
+    s.paidMonths.push(key);
+    const acc=ga(s.accountId);
+    if(acc&&acc.type==='credit')acc.balance=Number(acc.balance)+subMonthly(s);
+  }
   save();render();
 }
 
@@ -690,9 +718,17 @@ function go(t){
 }
 
 // ─── RENDER ───────────────────────────────────────────────────────────────
+function saveNotes(){
+  const t=el('ov-notes-text');
+  if(t){S.notes=t.value;save();}
+}
+
 function render(){
   el('navMonth').textContent=new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'});
   renderOverview();renderAccounts();renderIncome();renderBills();renderSubs();renderSpending();renderSavings();renderDebts();
+  // restore notes
+  const t=el('ov-notes-text');
+  if(t&&S.notes!==undefined&&t.value!==S.notes)t.value=S.notes||'';
 }
 
 function renderOverview(){
@@ -1104,12 +1140,16 @@ function renderSpending(){
   if(!S.weeks.length){c.innerHTML=empty('📅','No spending logged yet');return;}
   const grandTotal=totSpending();
   c.innerHTML=S.weeks.map(w=>{
-    const wTotal=w.entries.reduce((s,e)=>s+Number(e.amount),0);
+    const wMisc=w.entries.reduce((s,e)=>s+Number(e.amount),0);
+    const wStatement=w.entries.reduce((s,e)=>s+Number(e.statementTotal||e.amount),0);
     return `<div class="week-group">
       <div class="week-header">
-        <div class="week-label">${w.label}</div>
+        <div>
+          <div class="week-label">${w.label}</div>
+          ${w.startDate&&w.endDate?`<div style="font-size:11px;color:var(--t3);font-family:'Inter',sans-serif">${w.startDate} – ${w.endDate}</div>`:''}
+        </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="week-total">${fmt(wTotal)}</div>
+          <div class="week-total">${fmt(wMisc)}</div>
           <button class="bic" onclick="openModal('week','${w.id}')">✎</button>
           <button class="bic r" onclick="rm('week','${w.id}')">✕</button>
         </div>
@@ -1117,11 +1157,14 @@ function renderSpending(){
       <div class="week-entries">
         ${w.entries.map(e=>`<div class="week-entry">
           <div class="week-entry-acc">${an(e.accountId)}</div>
-          <div class="week-entry-amt r">${fmt(e.amount)}</div>
+          <div style="text-align:right">
+            <div class="week-entry-amt r">${fmt(e.amount)}</div>
+            ${e.statementTotal&&e.statementTotal!==e.amount?`<div style="font-size:10px;color:var(--t3);font-family:'Inter',sans-serif">stmt: ${fmt(e.statementTotal)} − ${fmt((e.billsSubtracted||0)+(e.subsSubtracted||0))} tracked</div>`:''}
+          </div>
         </div>`).join('')}
       </div>
     </div>`;
-  }).join('')+`<div class="sumrow"><span class="sumrow-lbl">Month total</span><span class="sumrow-val r">${fmt(grandTotal)}</span></div>`;
+  }).join('')+`<div class="sumrow"><span class="sumrow-lbl">Month misc total</span><span class="sumrow-val r">${fmt(grandTotal)}</span></div>`;
 }
 
 function renderSavings(){
@@ -1312,7 +1355,11 @@ function openModal(mode,id=null){
         <select class="fi" id="f_smonth">${monthOpts(s?s.chargeMonth:'')}</select>
       </div>
       <div class="fg"><label class="fl">Charged to</label>
-        <select class="fi" id="f_sacc">${S.accounts.length?accOpts(s?s.accountId:''):'<option>Add an account first</option>'}</select></div>`;
+        <select class="fi" id="f_sacc">${S.accounts.length?accOpts(s?s.accountId:''):'<option>Add an account first</option>'}</select></div>
+      <div class="fg"><label class="fl">Charge day of month</label>
+        <input class="fi" id="f_sday" type="number" min="1" max="31" placeholder="e.g. 15" value="${s&&s.chargeDay?s.chargeDay:''}">
+        <div class="hint">Day of month this subscription is charged. Helps match it to your weekly statement.</div>
+      </div>`;
   }
   else if(mode==='week'){
     const w=id?S.weeks.find(x=>x.id===id):null;
@@ -1320,11 +1367,16 @@ function openModal(mode,id=null){
     const wn=S.weeks.length+(w?0:1);
     const d=new Date();
     t.textContent=w?'Edit Week':'Log Weekly Spending';
-    const entriesHtml=w?w.entries.map((e,i)=>weekRowHtml(i,e.accountId,e.amount)).join(''):weekRowHtml(0,'','');
+    const entriesHtml=w?w.entries.map((e,i)=>weekRowHtml(i,e.accountId,e.amount,e.statementTotal||'')).join(''):weekRowHtml(0,'','','');
     b.innerHTML=`
       <div class="fg"><label class="fl">Week label</label>
         <input class="fi" id="f_wl" value="${w?w.label:'Week '+wn+' — '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}"></div>
-      <div class="fg"><label class="fl">Spending by account</label>
+      <div class="fi-row">
+        <div class="fg"><label class="fl">Week start</label><input class="fi" id="f_wstart" type="date" value="${w&&w.startDate?w.startDate:''}"></div>
+        <div class="fg"><label class="fl">Week end</label><input class="fi" id="f_wend" type="date" value="${w&&w.endDate?w.endDate:''}"></div>
+      </div>
+      <div class="hint" style="margin-bottom:14px">Enter dates so the app knows which subscriptions fell in this week.</div>
+      <div class="fg"><label class="fl">Statement totals by account</label>
         <div id="wrows">${entriesHtml}</div>
         <button class="wrow-add" onclick="addWeekRow()">+ Add account</button>
       </div>`;
@@ -1409,10 +1461,10 @@ function openModal(mode,id=null){
   setTimeout(()=>{const f=b.querySelector('input,select');if(f)f.focus();},60);
 }
 
-function weekRowHtml(i,accId='',amt=''){
+function weekRowHtml(i,accId='',amt='',statTotal=''){
   return `<div class="wrow" id="wrow_${i}">
     <select class="fi" id="f_wacc_${i}">${S.accounts.length?accOpts(accId):'<option>Add account first</option>'}</select>
-    <input class="fi" id="f_wamt_${i}" type="number" placeholder="$0" value="${amt||''}">
+    <input class="fi" id="f_wamt_${i}" type="number" placeholder="Statement $" value="${amt||''}">
     <button class="bic r" onclick="removeWeekRow(${i})">✕</button>
   </div>`;
 }
@@ -1447,8 +1499,20 @@ function saveModal(){
   else if(modalMode==='income'){
     const name=v('f_in'),amount=parseFloat(v('f_ia')),accountId=v('f_iacc'),month=v('f_imonth');
     if(!name||isNaN(amount))return;
-    if(editId){const i=S.income.find(x=>x.id===editId);i.name=name;i.amount=amount;i.accountId=accountId;i.month=month;}
-    else S.income.push({id:uid(),name,amount,accountId,month});
+    if(editId){
+      const i=S.income.find(x=>x.id===editId);
+      // reverse old amount from old account
+      const oldAcc=ga(i.accountId);
+      if(oldAcc)oldAcc.balance=Number(oldAcc.balance)-Number(i.amount);
+      i.name=name;i.amount=amount;i.accountId=accountId;i.month=month;
+      // add new amount to new account
+      const newAcc=ga(accountId);
+      if(newAcc)newAcc.balance=Number(newAcc.balance)+amount;
+    } else {
+      S.income.push({id:uid(),name,amount,accountId,month});
+      const acc=ga(accountId);
+      if(acc)acc.balance=Number(acc.balance)+amount;
+    }
     toast(editId?'Income updated':'Income added');
   }
   else if(modalMode==='bill'){
@@ -1461,32 +1525,53 @@ function saveModal(){
   }
   else if(modalMode==='sub'){
     const name=v('f_sn'),amount=parseFloat(v('f_sa')),cycle=v('f_sc'),chargeMonth=v('f_smonth')||'',accountId=v('f_sacc');
+    const chargeDay=parseInt(v('f_sday'))||null;
     if(!name||isNaN(amount))return;
-    if(editId){const s=S.subs.find(x=>x.id===editId);s.name=name;s.amount=amount;s.cycle=cycle;s.chargeMonth=chargeMonth;s.accountId=accountId;}
-    else S.subs.push({id:uid(),name,amount,cycle,chargeMonth,accountId,paidMonths:[]});
+    if(editId){const s=S.subs.find(x=>x.id===editId);s.name=name;s.amount=amount;s.cycle=cycle;s.chargeMonth=chargeMonth;s.accountId=accountId;s.chargeDay=chargeDay;}
+    else S.subs.push({id:uid(),name,amount,cycle,chargeMonth,accountId,chargeDay,paidMonths:[]});
     toast(editId?'Subscription updated':'Subscription added');
   }
   else if(modalMode==='week'){
     const label=v('f_wl');if(!label)return;
+    const startDate=v('f_wstart')||null;
+    const endDate=v('f_wend')||null;
     const entries=[];let i=0;
     while(i<50){
       const accEl=el('f_wacc_'+i),amtEl=el('f_wamt_'+i);
       if(!accEl&&!amtEl)break;
-      if(accEl&&amtEl){const amt=parseFloat(amtEl.value);
-        if(!isNaN(amt)&&amt>0){
-          entries.push({accountId:accEl.value,amount:amt});
-          const acc=ga(accEl.value);
-          if(acc&&acc.type==='credit'&&!editId)acc.balance=Number(acc.balance)+amt;
-        }}i++;
+      if(accEl&&amtEl){
+        const statementAmt=parseFloat(amtEl.value);
+        if(!isNaN(statementAmt)&&statementAmt>0){
+          const accId=accEl.value;
+          const acc=ga(accId);
+          // auto-subtract checked bills assigned to this account
+          const paidBillsAmt=S.bills.filter(b=>b.accountId===accId&&isBillPaid(b)).reduce((s,b)=>s+Number(b.amount),0);
+          // auto-subtract checked subs assigned to this account that fall within the week
+          let paidSubsAmt=0;
+          S.subs.filter(x=>x.accountId===accId&&isSubPaid(x)).forEach(x=>{
+            if(startDate&&endDate&&x.chargeDay){
+              // check if charge day falls within this week
+              const start=new Date(startDate);
+              const end=new Date(endDate);
+              const chargeDate=new Date(start.getFullYear(),start.getMonth(),x.chargeDay);
+              if(chargeDate>=start&&chargeDate<=end)paidSubsAmt+=subMonthly(x);
+            } else {
+              // no date range — subtract all paid subs
+              paidSubsAmt+=subMonthly(x);
+            }
+          });
+          const miscAmt=Math.max(0,statementAmt-paidBillsAmt-paidSubsAmt);
+          entries.push({accountId:accId,amount:miscAmt,statementTotal:statementAmt,billsSubtracted:paidBillsAmt,subsSubtracted:paidSubsAmt});
+        }
+      }i++;
     }
     if(!entries.length)return;
     const weekMonth=MONTHS[nowMonth()]+' '+nowYear();
     if(editId){
       const w=S.weeks.find(x=>x.id===editId);
-      w.entries.forEach(e=>{const acc=ga(e.accountId);if(acc&&acc.type==='credit')acc.balance=Math.max(0,Number(acc.balance)-Number(e.amount));});
-      w.label=label;w.entries=entries;if(!w.month)w.month=weekMonth;
-      entries.forEach(e=>{const acc=ga(e.accountId);if(acc&&acc.type==='credit')acc.balance=Number(acc.balance)+Number(e.amount);});
-    } else S.weeks.push({id:uid(),label,entries,month:weekMonth});
+      w.label=label;w.entries=entries;w.startDate=startDate;w.endDate=endDate;
+      if(!w.month)w.month=weekMonth;
+    } else S.weeks.push({id:uid(),label,entries,month:weekMonth,startDate,endDate});
     toast(editId?'Week updated':'Week logged');
   }
   else if(modalMode==='payment'){
@@ -1537,7 +1622,11 @@ function saveModal(){
 // ─── ACTIONS ──────────────────────────────────────────────────────────────
 function rm(type,id){
   if(type==='account')S.accounts=S.accounts.filter(x=>x.id!==id);
-  else if(type==='income')S.income=S.income.filter(x=>x.id!==id);
+  else if(type==='income'){
+    const i=S.income.find(x=>x.id===id);
+    if(i){const acc=ga(i.accountId);if(acc)acc.balance=Number(acc.balance)-Number(i.amount);}
+    S.income=S.income.filter(x=>x.id!==id);
+  }
   else if(type==='bill')S.bills=S.bills.filter(x=>x.id!==id);
   else if(type==='sub')S.subs=S.subs.filter(x=>x.id!==id);
   else if(type==='week'){
