@@ -1827,7 +1827,7 @@ function selectMonth(m){
 
 // ─── GOOGLE DRIVE SYNC ────────────────────────────────────────────────────
 const DRIVE_CLIENT_ID='39196568910-li5jfmpbkc6rpekb58kf9pk4icighsa0.apps.googleusercontent.com';
-const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILENAME='farida-finances-data.json';
 let driveTokenClient=null;
 let driveAccessToken=null;
@@ -1917,12 +1917,12 @@ async function driveFetch(url,opts={}){
 
 async function findOrCreateDriveFile(){
   const q=encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
-  const listRes=await driveFetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,name)`);
+  const listRes=await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
   const listData=await listRes.json();
   if(listData.files&&listData.files.length){
     driveFileId=listData.files[0].id;
   } else {
-    const metadata={name:DRIVE_FILENAME,parents:['appDataFolder']};
+    const metadata={name:DRIVE_FILENAME};
     const createRes=await driveFetch('https://www.googleapis.com/drive/v3/files',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -1943,7 +1943,7 @@ async function loadFromDrive(){
   try{
     const data=JSON.parse(text);
     if(data&&typeof data==='object'){
-      S={accounts:[],income:[],bills:[],subs:[],weeks:[],buckets:[],debts:[],...data};
+      S={accounts:[],income:[],bills:[],subs:[],weeks:[],buckets:[],debts:[],ccpayments:[],notes:'',...data};
     }
   }catch(e){ /* empty/invalid, keep defaults */ }
 }
